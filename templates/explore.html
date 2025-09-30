@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <title>Explore - DesignDiffusion</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="/static/assets/css/main.css" />
+    <style>
+      /* Lightweight overrides to avoid label/input overlap and improve readability */
+      .explore-grid { display:grid; grid-template-columns: 1fr 1.3fr; gap:24px; align-items:start; }
+      .explore-form label { display:block; margin:6px 0 4px; font-size:14px; color:#ddd; }
+      .explore-form textarea, .explore-form input[type="text"], .explore-form select {
+        width:100%; box-sizing:border-box; padding:12px 14px; font-size:18px; line-height:1.4; border:1px solid #444; border-radius:8px; background:#111; color:#f2f2f2;
+      }
+      .explore-form .row { margin:12px 0; }
+      .explore-actions { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+      .explore-note { color:#b8b8b8; font-size:14px; margin-top:4px; }
+      .output-card { border-radius:10px; overflow:hidden; background:#0c0c0c; border:1px solid #2a2a2a; }
+      .output-card img { width:100%; height:auto; display:block; }
+      .output-toolbar { display:flex; gap:8px; padding:8px; }
+      @media (max-width: 1024px) { .explore-grid { grid-template-columns: 1fr; } }
+
+      /* Buttons */
+      .btn { appearance:none; border:none; border-radius:10px; padding:10px 14px; font-weight:600; cursor:pointer; transition:all .15s ease; line-height:1; }
+      .btn:disabled { opacity:.6; cursor:not-allowed; }
+      .btn-primary { background:#3b82f6; color:#fff; box-shadow:0 4px 14px rgba(59,130,246,.35); }
+      .btn-primary:hover { filter:brightness(1.1); box-shadow:0 6px 18px rgba(59,130,246,.5); }
+      .btn-secondary { background:#475569; color:#fff; }
+      .btn-secondary:hover { filter:brightness(1.08); }
+      .btn-ghost { background:transparent; color:#d1d5db; border:1px solid #404040; }
+      .btn-ghost:hover { background:#141414; }
+      #loader { color:#9ca3af; font-size:14px; }
+      /* Align the native file input a bit nicer */
+      input[type="file"] { color:#bdbdbd; }
+    </style>
+  </head>
+  <body>
+    <div class="l-viewport">
+      <div class="l-wrapper" style="padding: 24px; max-width: 1200px; margin: 0 auto;">
+        <header class="header">
+          <a class="header--logo" href="/">
+            <img src="/static/assets/img/logo.png" alt="DesignDiffusion" />
+            <p>DesignDiffusion</p>
+          </a>
+        </header>
+
+        <section class="section section--is-active">
+          <div class="explore-grid">
+            <div>
+              <h2 style="margin-bottom:8px;">Generate design options</h2>
+              <p class="explore-note">Type a prompt or upload audio to transcribe as your prompt.</p>
+
+              {% if error %}
+              <div style="color: #c0392b; margin: 12px 0;">{{ error }}</div>
+              {% endif %}
+
+              <form id="gen-form" method="post" class="explore-form" style="margin:16px 0;">
+                <div class="row">
+                  <label for="prompt">Prompt</label>
+                  <textarea id="prompt" name="prompt" rows="3" placeholder="e.g., modern minimalist living room with natural light, white oak, soft textiles" spellcheck="false">{{ prompt_value }}</textarea>
+                </div>
+                <div class="row">
+                  <label for="num_images">Images</label>
+                  <select id="num_images" name="num_images">
+                    <option value="1">1</option>
+                    <option value="2" selected>2</option>
+                    <option value="3">3</option>
+                    <option value="4">4</option>
+                  </select>
+                </div>
+                <div class="row">
+                  <label for="audio">Audio</label>
+                  <div class="explore-actions">
+                    <input id="audio" type="file" accept="audio/*" />
+                    <button id="btn-transcribe" type="button" class="btn btn-secondary">Use audio</button>
+                    <button id="btn-clear" type="button" class="btn btn-ghost">Clear</button>
+                  </div>
+                </div>
+                <div class="row explore-actions">
+                  <button type="submit" class="btn btn-primary">Generate</button>
+                  <span id="loader" style="display:none;">Generating...</span>
+                </div>
+              </form>
+            </div>
+            <div>
+              <div id="output-wrap" class="output-card">
+                {% if generated and generated|length %}
+                  <img id="output-img" src="/{{ generated[-1] }}" alt="Result" />
+                {% else %}
+                  <div style="border:1px dashed #666; border-radius:8px; padding:24px; text-align:center;">Your result will appear here</div>
+                {% endif %}
+                <div class="output-toolbar">
+                  <button id="btn-flag" class="btn btn-ghost" type="button">Flag</button>
+                </div>
+              </div>
+
+              <h3 style="margin-top:24px;">Previous results</h3>
+              {% if gallery and gallery|length %}
+              <div class="work--lockup">
+                <ul class="slider" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px,1fr)); gap: 16px;">
+                  {% for path in gallery|reverse %}
+                  <li class="slider--item" style="list-style: none;">
+                    <a href="/{{ path }}" target="_blank">
+                      <div class="slider--item-image">
+                        <img src="/{{ path }}" alt="Gallery" />
+                      </div>
+                    </a>
+                  </li>
+                  {% endfor %}
+                </ul>
+              </div>
+              {% else %}
+              <p>No previous results yet.</p>
+              {% endif %}
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <script src="/static/assets/js/functions-min.js"></script>
+    <script>
+      const form = document.getElementById('gen-form');
+      const loader = document.getElementById('loader');
+      const outputWrap = document.getElementById('output-wrap');
+      const audioInput = document.getElementById('audio');
+      const btnTranscribe = document.getElementById('btn-transcribe');
+      const btnClear = document.getElementById('btn-clear');
+      const btnFlag = document.getElementById('btn-flag');
+
+      if (btnTranscribe) {
+        btnTranscribe.addEventListener('click', async () => {
+          if (!audioInput.files || !audioInput.files[0]) return;
+          const fd = new FormData();
+          fd.append('audio', audioInput.files[0]);
+          try {
+            const r = await fetch('/api/transcribe', { method: 'POST', body: fd });
+            const j = await r.json();
+            if (j.text) {
+              document.getElementById('prompt').value = j.text;
+            } else if (j.error) {
+              alert('Transcription error: ' + j.error);
+            }
+          } catch (e) {
+            alert('Transcription failed');
+          }
+        });
+      }
+
+      if (btnClear) {
+        btnClear.addEventListener('click', () => {
+          document.getElementById('prompt').value = '';
+          if (audioInput) audioInput.value = '';
+        });
+      }
+
+      if (form) {
+        form.addEventListener('submit', () => {
+          loader.style.display = 'inline-block';
+        });
+      }
+
+      if (btnFlag) {
+        btnFlag.addEventListener('click', async () => {
+          const img = document.getElementById('output-img');
+          const src = img ? img.getAttribute('src') : '';
+          const fd = new FormData();
+          fd.append('image', src);
+          fd.append('reason', 'user flag');
+          try { await fetch('/api/flag', { method: 'POST', body: fd }); } catch(e) {}
+          alert('Flag submitted');
+        });
+      }
+    </script>
+  </body>
+  </html>
+
+
